@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import signal
+import string
 import subprocess
 import sys
 import tarfile
@@ -16,7 +17,11 @@ from enum import Enum
 
 PRINTER_NAME = "sdw-printer"
 PRINTER_WAIT_TIMEOUT = 60
-DEVICE = "/dev/sda"
+
+# Device names can be /dev/sdX or /dev/xvdX
+POSSIBLE_USB_DEVICES = ["/dev/sd{}".format(x) for x in string.ascii_lowercase] + \
+                       ["/dev/xvd{}".format(x) for x in string.ascii_lowercase]
+
 MOUNTPOINT = "/media/usb"
 ENCRYPTED_DEVICE = "encrypted_volume"
 BRLASER_DRIVER = "/usr/share/cups/drv/brlaser.drv"
@@ -120,7 +125,7 @@ class Metadata(object):
 
 class SDExport(object):
     def __init__(self, archive, config_path):
-        self.device = DEVICE
+        self.device = None  # Optional[str]
         self.mountpoint = MOUNTPOINT
         self.encrypted_device = ENCRYPTED_DEVICE
 
@@ -192,17 +197,32 @@ class SDExport(object):
         except Exception:
             self.exit_gracefully(ExportStatus.ERROR_EXTRACTION.value)
 
-    def check_usb_connected(self):
+    def check_for_usb_devices(self):
+        attached_devices = []
+        for device in POSSIBLE_USB_DEVICES:
+            if self._check_usb_connected(device):
+                attached_devices.append(device)
+
+        if len(attached_devices) == 0:
+            self.exit_gracefully(ExportStatus.USB_NOT_CONNECTED.value)
+        elif len(attached_devices) == 1:
+            self.exit_gracefully(ExportStatus.USB_CONNECTED.value)
+            self.device = attached_devices[0]
+        elif len(attached_devices) > 1:
+            # Return generic error until freedomofpress/securedrop-export/issues/25
+            self.exit_gracefully(ExportStatus.ERROR_GENERIC.value)
+
+    def _check_usb_connected(self, device):
         # If the USB is not attached via qvm-usb attach, lsusb will return empty string and a
         # return code of 1
         logging.info('Performing usb preflight')
         try:
             subprocess.check_output(
-                ["lsblk", "-p", "-o", "KNAME", "--noheadings", "--inverse", DEVICE],
+                ["lsblk", "-p", "-o", "KNAME", "--noheadings", "--inverse", device],
                 stderr=subprocess.PIPE)
-            self.exit_gracefully(ExportStatus.USB_CONNECTED.value)
+            return True
         except subprocess.CalledProcessError:
-            self.exit_gracefully(ExportStatus.USB_NOT_CONNECTED.value)
+            return False
 
     def set_extracted_device_name(self):
         try:

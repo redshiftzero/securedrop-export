@@ -17,7 +17,7 @@ def __main__(submission):
     if submission.archive_metadata.is_valid():
         if submission.archive_metadata.export_method == "usb-test":
             logging.info('Export archive is usb-test')
-            submission.check_usb_connected()
+            submission.check_for_usb_devices()
         elif submission.archive_metadata.export_method == "disk":
             logging.info('Export archive is disk')
             logging.info('Unlocking volume')
